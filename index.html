@@ -248,12 +248,16 @@
         }
 
         /* ── Emotion HUD (overlaid on video on mobile) ── */
+        .emotion-hud-card {
+            display: flex; flex-direction: column;
+        }
         .emotion-hud {
             display: flex; flex-direction: column;
             align-items: center; justify-content: center;
             gap: var(--space-xs);
             text-align: center;
             padding: var(--space-lg);
+            flex: 1;
         }
         #emoji {
             font-size: 64px; line-height: 1;
