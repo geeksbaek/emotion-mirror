@@ -1127,6 +1127,30 @@
         labelEl.textContent = info.label;
         labelEl.style.color = info.color;
         confEl.textContent = Math.round(confidence * 100) + '%';
+        updateFavicon(info.emoji);
+    }
+
+    let _prevFaviconEmoji = '';
+    const _faviconCanvas = document.createElement('canvas');
+    _faviconCanvas.width = 64;
+    _faviconCanvas.height = 64;
+    const _faviconCtx = _faviconCanvas.getContext('2d');
+    let _faviconLink = document.querySelector("link[rel~='icon']");
+    if (!_faviconLink) {
+        _faviconLink = document.createElement('link');
+        _faviconLink.rel = 'icon';
+        document.head.appendChild(_faviconLink);
+    }
+
+    function updateFavicon(emoji) {
+        if (emoji === _prevFaviconEmoji) return;
+        _prevFaviconEmoji = emoji;
+        _faviconCtx.clearRect(0, 0, 64, 64);
+        _faviconCtx.font = '52px serif';
+        _faviconCtx.textAlign = 'center';
+        _faviconCtx.textBaseline = 'middle';
+        _faviconCtx.fillText(emoji, 32, 36);
+        _faviconLink.href = _faviconCanvas.toDataURL('image/png');
     }
 
     function updateAmbientGlow(emotion) {
@@ -1156,6 +1180,7 @@
         labelEl.style.color = 'var(--text-dim)';
         confEl.textContent = '— %';
         updateAmbientGlow('neutral');
+        updateFavicon('👻');
     }
 
     function updateStatus(mode) {
