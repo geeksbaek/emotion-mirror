@@ -2,125 +2,239 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Emotion Mirror — WebGPU</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
         :root {
-            --bg-primary: #0a0a1a;
-            --bg-secondary: rgba(255, 255, 255, 0.05);
-            --bg-glass: rgba(255, 255, 255, 0.06);
-            --border-glass: rgba(255, 255, 255, 0.10);
-            --text-primary: #e8e8f0;
-            --text-secondary: #8888aa;
-            --accent-happy: #FFD700;
-            --accent-sad: #4169E1;
-            --accent-angry: #DC143C;
-            --accent-surprised: #FF8C00;
-            --accent-disgusted: #228B22;
-            --accent-fearful: #9370DB;
-            --accent-neutral: #A0A0C0;
-            --glass-blur: 20px;
-            --radius: 16px;
-            --shadow: 0 8px 32px rgba(0,0,0,0.4);
+            --bg-void: #06060e;
+            --bg-deep: #0b0b18;
+            --bg-card: rgba(14, 14, 30, 0.7);
+            --bg-card-hover: rgba(20, 20, 42, 0.8);
+            --border-subtle: rgba(255, 255, 255, 0.06);
+            --border-glow: rgba(255, 255, 255, 0.12);
+            --text-bright: #f0f0f8;
+            --text-mid: #9898b8;
+            --text-dim: #5a5a78;
+            --accent-happy: #fbbf24;
+            --accent-sad: #60a5fa;
+            --accent-angry: #f43f5e;
+            --accent-surprised: #fb923c;
+            --accent-disgusted: #34d399;
+            --accent-fearful: #a78bfa;
+            --accent-neutral: #94a3b8;
+            --glow-color: var(--accent-neutral);
+            --radius-sm: 10px;
+            --radius-md: 16px;
+            --radius-lg: 24px;
+            --space-xs: 6px;
+            --space-sm: 10px;
+            --space-md: 16px;
+            --space-lg: 24px;
+            --space-xl: 32px;
         }
 
+        html { height: 100%; -webkit-text-size-adjust: 100%; }
+
         body {
-            background: var(--bg-primary);
-            color: var(--text-primary);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: var(--bg-void);
+            color: var(--text-bright);
+            font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
             min-height: 100vh;
+            min-height: 100dvh;
             overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        /* ── Ambient Background ── */
+        #ambient {
+            position: fixed; inset: 0; z-index: 0;
+            pointer-events: none;
+            overflow: hidden;
+        }
+        #ambient::before {
+            content: '';
+            position: absolute;
+            width: 600px; height: 600px;
+            top: -200px; left: 50%;
+            transform: translateX(-50%);
+            background: radial-gradient(circle, var(--glow-color) 0%, transparent 70%);
+            opacity: 0.08;
+            transition: opacity 0.8s ease, background 0.8s ease;
+            filter: blur(80px);
+        }
+        #ambient::after {
+            content: '';
+            position: absolute;
+            width: 400px; height: 400px;
+            bottom: -100px; right: -100px;
+            background: radial-gradient(circle, var(--accent-fearful) 0%, transparent 70%);
+            opacity: 0.04;
+            filter: blur(60px);
+        }
+
+        /* ── Noise Texture Overlay ── */
+        body::after {
+            content: '';
+            position: fixed; inset: 0; z-index: 0;
+            pointer-events: none;
+            background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+            background-repeat: repeat;
+            opacity: 0.5;
         }
 
         /* ── Loading Screen ── */
         #loading-screen {
             position: fixed; inset: 0; z-index: 1000;
-            background: var(--bg-primary);
+            background: var(--bg-void);
             display: flex; flex-direction: column;
             align-items: center; justify-content: center;
-            gap: 24px;
-            transition: opacity 0.6s ease;
+            gap: 28px;
+            transition: opacity 0.8s cubic-bezier(0.4, 0, 0.2, 1);
         }
         #loading-screen.fade-out { opacity: 0; pointer-events: none; }
+
+        .loader-wrap {
+            position: relative;
+            width: 72px; height: 72px;
+        }
         .loader-ring {
-            width: 64px; height: 64px;
-            border: 4px solid rgba(255,255,255,0.1);
+            width: 72px; height: 72px;
+            border: 2px solid rgba(255,255,255,0.06);
             border-top-color: var(--accent-happy);
+            border-right-color: var(--accent-surprised);
             border-radius: 50%;
-            animation: spin 1s linear infinite;
+            animation: spin 1.2s cubic-bezier(0.5, 0, 0.5, 1) infinite;
+        }
+        .loader-inner {
+            position: absolute; inset: 12px;
+            border: 2px solid rgba(255,255,255,0.04);
+            border-bottom-color: var(--accent-sad);
+            border-radius: 50%;
+            animation: spin 0.8s cubic-bezier(0.5, 0, 0.5, 1) infinite reverse;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
-        #loading-text { color: var(--text-secondary); font-size: 14px; }
+
+        .loading-title {
+            font-size: 22px; font-weight: 700;
+            letter-spacing: -0.02em;
+            background: linear-gradient(135deg, var(--accent-happy) 0%, var(--accent-surprised) 50%, var(--accent-fearful) 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        #loading-text {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--text-dim); font-size: 12px;
+            letter-spacing: 0.02em;
+        }
         #loading-progress {
-            width: 240px; height: 4px;
-            background: rgba(255,255,255,0.1);
+            width: min(280px, 70vw); height: 3px;
+            background: rgba(255,255,255,0.06);
             border-radius: 2px; overflow: hidden;
         }
         #loading-bar {
             height: 100%; width: 0%;
-            background: linear-gradient(90deg, var(--accent-happy), var(--accent-surprised));
+            background: linear-gradient(90deg, var(--accent-happy), var(--accent-surprised), var(--accent-fearful));
             border-radius: 2px;
-            transition: width 0.4s ease;
+            transition: width 0.5s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
         /* ── Error Screen ── */
         #error-screen {
             display: none; position: fixed; inset: 0; z-index: 999;
-            background: var(--bg-primary);
-            flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+            background: var(--bg-void);
+            flex-direction: column; align-items: center; justify-content: center;
+            gap: 16px; padding: 24px;
         }
         #error-screen.visible { display: flex; }
-        .error-icon { font-size: 64px; }
-        .error-msg { color: var(--text-secondary); font-size: 15px; text-align: center; max-width: 400px; line-height: 1.6; }
-        .retry-btn {
-            margin-top: 8px; padding: 10px 28px;
-            background: rgba(255,255,255,0.1); color: var(--text-primary);
-            border: 1px solid var(--border-glass); border-radius: 8px;
-            cursor: pointer; font-size: 14px; transition: background 0.2s;
+        .error-icon { font-size: 56px; }
+        .error-title { font-size: 18px; font-weight: 600; }
+        .error-msg {
+            color: var(--text-mid); font-size: 14px;
+            text-align: center; max-width: 360px; line-height: 1.7;
         }
-        .retry-btn:hover { background: rgba(255,255,255,0.18); }
+        .retry-btn {
+            margin-top: 12px; padding: 12px 32px;
+            background: rgba(255,255,255,0.06); color: var(--text-bright);
+            border: 1px solid var(--border-glow); border-radius: var(--radius-sm);
+            cursor: pointer; font-family: 'Outfit', sans-serif;
+            font-size: 14px; font-weight: 500;
+            transition: all 0.25s ease;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .retry-btn:hover { background: rgba(255,255,255,0.12); transform: translateY(-1px); }
+        .retry-btn:active { transform: scale(0.97); }
 
         /* ── Main App ── */
         #app {
-            display: none; padding: 20px;
-            max-width: 1200px; margin: 0 auto;
+            display: none;
+            position: relative; z-index: 1;
+            padding: var(--space-md);
+            max-width: 1400px; margin: 0 auto;
+            min-height: 100vh; min-height: 100dvh;
         }
-        #app.visible { display: block; }
+        #app.visible { display: flex; flex-direction: column; }
 
-        header { text-align: center; margin-bottom: 20px; }
+        /* ── Header ── */
+        header {
+            text-align: center;
+            padding: var(--space-sm) 0 var(--space-md);
+            flex-shrink: 0;
+        }
         header h1 {
-            font-size: 24px; font-weight: 700;
-            background: linear-gradient(135deg, var(--accent-happy), var(--accent-surprised));
+            font-size: 20px; font-weight: 700;
+            letter-spacing: -0.03em;
+            background: linear-gradient(135deg, #fff 0%, var(--text-mid) 100%);
             -webkit-background-clip: text; -webkit-text-fill-color: transparent;
             background-clip: text;
         }
-        header p { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
-
-        .glass-card {
-            background: var(--bg-glass);
-            backdrop-filter: blur(var(--glass-blur));
-            -webkit-backdrop-filter: blur(var(--glass-blur));
-            border: 1px solid var(--border-glass);
-            border-radius: var(--radius);
-            box-shadow: var(--shadow);
-            padding: 16px;
+        header h1 span {
+            background: linear-gradient(135deg, var(--accent-happy) 0%, var(--accent-surprised) 100%);
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .subtitle {
+            color: var(--text-dim); font-size: 12px;
+            margin-top: 4px; font-weight: 400;
+            letter-spacing: 0.02em;
         }
 
-        .main-grid {
-            display: grid;
-            grid-template-columns: 1.6fr 1fr;
-            grid-template-rows: auto auto;
-            gap: 16px;
+        /* ── Glass Card ── */
+        .card {
+            background: var(--bg-card);
+            backdrop-filter: blur(24px) saturate(1.2);
+            -webkit-backdrop-filter: blur(24px) saturate(1.2);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius-md);
+            position: relative;
+            overflow: hidden;
+            transition: border-color 0.3s ease;
         }
-        .video-section { grid-row: 1 / 3; }
-        .timeline-section { grid-column: 1 / -1; }
+        .card::before {
+            content: '';
+            position: absolute; inset: 0;
+            background: linear-gradient(135deg, rgba(255,255,255,0.03) 0%, transparent 50%);
+            pointer-events: none;
+        }
 
+        /* ── Main Grid ── */
+        .main-content {
+            display: flex; flex-direction: column;
+            gap: var(--space-md);
+            flex: 1;
+        }
+
+        /* ── Video Section ── */
+        .video-card { padding: 0; }
         #video-wrap {
             position: relative; width: 100%;
             aspect-ratio: 4/3; overflow: hidden;
-            border-radius: 12px; background: #000;
+            border-radius: var(--radius-md);
+            background: #000;
         }
         #video {
             width: 100%; height: 100%;
@@ -133,85 +247,233 @@
             transform: scaleX(-1);
         }
 
-        .emoji-section {
+        /* ── Emotion HUD (overlaid on video on mobile) ── */
+        .emotion-hud {
             display: flex; flex-direction: column;
             align-items: center; justify-content: center;
-            gap: 8px; text-align: center;
-            min-height: 180px;
+            gap: var(--space-xs);
+            text-align: center;
+            padding: var(--space-lg);
         }
         #emoji {
-            font-size: 80px; line-height: 1;
-            transition: transform 0.3s ease;
+            font-size: 64px; line-height: 1;
+            transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+            filter: drop-shadow(0 4px 20px rgba(0,0,0,0.3));
         }
-        #emoji.pulse { animation: pulse 1.5s ease-in-out infinite; }
+        #emoji.pulse { animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite; }
         @keyframes pulse {
             0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.12); }
+            50% { transform: scale(1.08); }
         }
         #emotion-label {
-            font-size: 20px; font-weight: 600;
-            transition: color 0.3s ease;
+            font-size: 18px; font-weight: 600;
+            letter-spacing: -0.01em;
+            transition: color 0.4s ease;
         }
-        #emotion-confidence { font-size: 14px; color: var(--text-secondary); }
+        #emotion-confidence {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px; color: var(--text-dim);
+            letter-spacing: 0.03em;
+        }
 
-        .chart-section { position: relative; min-height: 200px; }
+        /* ── Chart Section ── */
+        .chart-card { padding: var(--space-md); }
+        .card-label {
+            font-size: 11px; font-weight: 500;
+            color: var(--text-dim); text-transform: uppercase;
+            letter-spacing: 0.08em;
+            margin-bottom: var(--space-sm);
+        }
         #bar-chart-wrap { width: 100%; height: 180px; }
-        .timeline-section { position: relative; }
-        #timeline-wrap { width: 100%; height: 140px; }
+        #timeline-wrap { width: 100%; height: 120px; }
 
+        /* ── Status Bar ── */
         .status-bar {
             display: flex; align-items: center; justify-content: space-between;
-            margin-top: 16px; padding: 10px 16px;
-            font-size: 12px; color: var(--text-secondary);
+            padding: var(--space-sm) var(--space-md);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px; color: var(--text-dim);
+            flex-shrink: 0;
+            margin-top: var(--space-md);
         }
-        .status-left, .status-right { display: flex; align-items: center; gap: 16px; }
+        .status-left { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+        .status-right { display: flex; align-items: center; gap: 8px; }
+
+        .status-item { display: flex; align-items: center; gap: 6px; }
         .status-dot {
-            width: 8px; height: 8px; border-radius: 50%;
-            background: #22c55e; display: inline-block; margin-right: 6px;
+            width: 6px; height: 6px; border-radius: 50%;
+            background: #22c55e; flex-shrink: 0;
         }
         .status-dot.no-face { background: #ef4444; }
         .status-dot.paused { background: #eab308; }
-        .status-dot.background { animation: blink 1.2s ease-in-out infinite; background: #3b82f6; }
-        @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+        .status-dot.background { animation: blink 1.4s ease-in-out infinite; background: #3b82f6; }
+        @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.2; } }
 
         .pause-btn {
-            padding: 4px 14px; font-size: 12px;
-            background: rgba(255,255,255,0.08); color: var(--text-primary);
-            border: 1px solid var(--border-glass); border-radius: 6px;
-            cursor: pointer; transition: background 0.2s;
+            padding: 6px 16px; font-size: 11px;
+            font-family: 'Outfit', sans-serif; font-weight: 500;
+            background: rgba(255,255,255,0.06); color: var(--text-mid);
+            border: 1px solid var(--border-subtle); border-radius: 6px;
+            cursor: pointer; transition: all 0.2s ease;
+            -webkit-tap-highlight-color: transparent;
         }
-        .pause-btn:hover { background: rgba(255,255,255,0.15); }
+        .pause-btn:hover { background: rgba(255,255,255,0.1); color: var(--text-bright); }
+        .pause-btn:active { transform: scale(0.96); }
 
         .backend-badge {
-            padding: 2px 8px; font-size: 10px; font-weight: 600;
-            background: rgba(118, 185, 0, 0.15); color: #76b900;
-            border: 1px solid rgba(118, 185, 0, 0.3);
+            padding: 3px 8px; font-size: 9px; font-weight: 600;
+            font-family: 'JetBrains Mono', monospace;
+            background: rgba(118, 185, 0, 0.1); color: #76b900;
+            border: 1px solid rgba(118, 185, 0, 0.2);
             border-radius: 4px; text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.06em;
         }
 
-        @media (max-width: 768px) {
-            .main-grid {
+        /* ══════════════════════════════════════
+           RESPONSIVE LAYOUT
+           Mobile-first: stack everything
+           ══════════════════════════════════════ */
+
+        /* ── Mobile (< 640px) ── */
+        .sidebar { display: contents; }
+
+        .emotion-hud { padding: var(--space-md); }
+        #emoji { font-size: 56px; }
+        #emotion-label { font-size: 16px; }
+
+        #bar-chart-wrap { height: 160px; }
+        #timeline-wrap { height: 100px; }
+
+        /* ── Tablet (640px+) ── */
+        @media (min-width: 640px) {
+            #app { padding: var(--space-lg); }
+
+            header h1 { font-size: 24px; }
+            .subtitle { font-size: 13px; }
+
+            .top-row {
+                display: grid;
                 grid-template-columns: 1fr;
-                grid-template-rows: auto;
+                gap: var(--space-md);
             }
-            .video-section { grid-row: auto; }
-            .timeline-section { grid-column: auto; }
+
+            #emoji { font-size: 64px; }
+            #emotion-label { font-size: 18px; }
+            #bar-chart-wrap { height: 180px; }
+            #timeline-wrap { height: 120px; }
+        }
+
+        /* ── Desktop (960px+) ── */
+        @media (min-width: 960px) {
+            #app { padding: var(--space-xl); }
+
+            header { padding: var(--space-md) 0 var(--space-lg); }
+            header h1 { font-size: 26px; }
+
+            .main-content {
+                display: grid;
+                grid-template-columns: 1.5fr 1fr;
+                grid-template-rows: auto auto auto;
+                gap: var(--space-md);
+            }
+
+            .video-card { grid-row: 1 / 3; }
+            .sidebar {
+                display: contents;
+            }
+            .emotion-hud-card { grid-column: 2; grid-row: 1; }
+            .bar-chart-card { grid-column: 2; grid-row: 2; }
+            .timeline-card { grid-column: 1 / -1; grid-row: 3; }
+
+            #emoji { font-size: 72px; }
+            #emotion-label { font-size: 20px; }
+            .emotion-hud { min-height: 200px; }
+
+            #bar-chart-wrap { height: 200px; }
+            #timeline-wrap { height: 140px; }
+        }
+
+        /* ── Large Desktop (1200px+) ── */
+        @media (min-width: 1200px) {
+            .main-content {
+                grid-template-columns: 1.6fr 1fr;
+                gap: var(--space-lg);
+            }
+
             #emoji { font-size: 80px; }
-            .emoji-section { min-height: 120px; }
+            #emotion-label { font-size: 22px; }
+            #bar-chart-wrap { height: 220px; }
+            #timeline-wrap { height: 160px; }
+
+            header h1 { font-size: 28px; }
+        }
+
+        /* ── Ultrawide (1600px+) ── */
+        @media (min-width: 1600px) {
+            #app { max-width: 1600px; }
+        }
+
+        /* ── Landscape mobile ── */
+        @media (max-height: 500px) and (orientation: landscape) {
+            header { padding: 4px 0 8px; }
+            header h1 { font-size: 16px; }
+            .subtitle { display: none; }
+            #app { padding: var(--space-sm); }
+
+            .main-content {
+                display: grid;
+                grid-template-columns: 1fr 1fr;
+                gap: var(--space-sm);
+            }
+
+            .video-card { grid-row: 1 / 3; }
+            .sidebar { display: contents; }
+            .emotion-hud-card { grid-column: 2; grid-row: 1; }
+            .bar-chart-card { grid-column: 2; grid-row: 2; }
+            .timeline-card { grid-column: 1 / -1; }
+
+            #video-wrap { aspect-ratio: 16/9; }
+            .emotion-hud { padding: var(--space-sm); min-height: auto; }
+            #emoji { font-size: 40px; }
+            #emotion-label { font-size: 14px; }
+            #bar-chart-wrap { height: 120px; }
+            #timeline-wrap { height: 80px; }
+
+            .status-bar { margin-top: var(--space-sm); padding: var(--space-xs) var(--space-sm); }
+        }
+
+        /* ── Safe area (notch devices) ── */
+        @supports (padding: env(safe-area-inset-bottom)) {
+            #app {
+                padding-bottom: calc(var(--space-md) + env(safe-area-inset-bottom));
+                padding-left: calc(var(--space-md) + env(safe-area-inset-left));
+                padding-right: calc(var(--space-md) + env(safe-area-inset-right));
+            }
+        }
+
+        /* ── Hover vs Touch ── */
+        @media (hover: none) {
+            .pause-btn { padding: 10px 20px; font-size: 13px; }
+            .retry-btn { padding: 14px 36px; font-size: 15px; }
         }
     </style>
 </head>
 <body>
+    <div id="ambient"></div>
+
     <div id="loading-screen">
-        <div class="loader-ring"></div>
+        <div class="loader-wrap">
+            <div class="loader-ring"></div>
+            <div class="loader-inner"></div>
+        </div>
+        <div class="loading-title">Emotion Mirror</div>
         <div id="loading-text">WebGPU 백엔드 초기화 중...</div>
         <div id="loading-progress"><div id="loading-bar"></div></div>
     </div>
 
     <div id="error-screen">
         <div class="error-icon">📷</div>
-        <div class="error-title" style="font-size:20px;font-weight:600;">카메라 접근 필요</div>
+        <div class="error-title">카메라 접근 필요</div>
         <div class="error-msg" id="error-msg">
             이 앱은 웹캠을 사용하여 표정을 분석합니다.<br>
             브라우저에서 카메라 접근을 허용해주세요.
@@ -221,45 +483,57 @@
 
     <div id="app">
         <header>
-            <h1>Emotion Mirror</h1>
-            <p>실시간 표정 감정 분석 — 온디바이스 AI (WebGPU)</p>
+            <h1>Emotion <span>Mirror</span></h1>
+            <p class="subtitle">실시간 표정 감정 분석 — 온디바이스 AI</p>
         </header>
 
-        <div class="main-grid">
-            <div class="video-section glass-card">
+        <div class="main-content">
+            <div class="card video-card">
                 <div id="video-wrap">
                     <video id="video" autoplay muted playsinline></video>
                     <canvas id="overlay"></canvas>
                 </div>
             </div>
 
-            <div class="emoji-section glass-card">
-                <div id="emoji">😐</div>
-                <div id="emotion-label" style="color: var(--accent-neutral);">Neutral</div>
-                <div id="emotion-confidence">— %</div>
-            </div>
+            <div class="sidebar">
+                <div class="card emotion-hud-card">
+                    <div class="emotion-hud">
+                        <div id="emoji">😐</div>
+                        <div id="emotion-label" style="color: var(--accent-neutral);">Neutral</div>
+                        <div id="emotion-confidence">— %</div>
+                    </div>
+                </div>
 
-            <div class="chart-section glass-card">
-                <div id="bar-chart-wrap">
-                    <canvas id="bar-chart"></canvas>
+                <div class="card chart-card bar-chart-card">
+                    <div class="card-label">감정 분포</div>
+                    <div id="bar-chart-wrap">
+                        <canvas id="bar-chart"></canvas>
+                    </div>
                 </div>
             </div>
 
-            <div class="timeline-section glass-card">
+            <div class="card chart-card timeline-card">
+                <div class="card-label">타임라인</div>
                 <div id="timeline-wrap">
                     <canvas id="timeline-chart"></canvas>
                 </div>
             </div>
         </div>
 
-        <div class="status-bar glass-card">
+        <div class="status-bar card">
             <div class="status-left">
-                <span><span class="status-dot" id="status-dot"></span><span id="status-text">시작하는 중...</span></span>
-                <span id="fps-text">0 FPS</span>
+                <div class="status-item">
+                    <span class="status-dot" id="status-dot"></span>
+                    <span id="status-text">시작하는 중...</span>
+                </div>
+                <div class="status-item">
+                    <span id="fps-text">0 FPS</span>
+                </div>
                 <span class="backend-badge" id="backend-badge">WebGPU</span>
-                <span id="bg-indicator" style="display:none;">
-                    <span class="status-dot background"></span>백그라운드 모드
-                </span>
+                <div class="status-item" id="bg-indicator" style="display:none;">
+                    <span class="status-dot background"></span>
+                    <span>백그라운드</span>
+                </div>
             </div>
             <div class="status-right">
                 <button class="pause-btn" id="pause-btn">일시정지</button>
@@ -298,13 +572,13 @@
     const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/model';
 
     const EMOTION_MAP = {
-        neutral:   { emoji: '😐', label: 'Neutral',   color: '#A0A0C0' },
-        happy:     { emoji: '😊', label: 'Happy',     color: '#FFD700' },
-        sad:       { emoji: '😢', label: 'Sad',       color: '#4169E1' },
-        angry:     { emoji: '😠', label: 'Angry',     color: '#DC143C' },
-        surprised: { emoji: '😲', label: 'Surprised', color: '#FF8C00' },
-        disgusted: { emoji: '🤢', label: 'Disgusted', color: '#228B22' },
-        fearful:   { emoji: '😨', label: 'Fearful',   color: '#9370DB' },
+        neutral:   { emoji: '😐', label: 'Neutral',   color: '#94a3b8' },
+        happy:     { emoji: '😊', label: 'Happy',     color: '#fbbf24' },
+        sad:       { emoji: '😢', label: 'Sad',       color: '#60a5fa' },
+        angry:     { emoji: '😠', label: 'Angry',     color: '#f43f5e' },
+        surprised: { emoji: '😲', label: 'Surprised', color: '#fb923c' },
+        disgusted: { emoji: '🤢', label: 'Disgusted', color: '#34d399' },
+        fearful:   { emoji: '😨', label: 'Fearful',   color: '#a78bfa' },
     };
 
     const EMOTION_ORDER = ['happy', 'sad', 'angry', 'surprised', 'disgusted', 'fearful', 'neutral'];
@@ -356,6 +630,7 @@
     const pauseBtn = document.getElementById('pause-btn');
     const loadingBar = document.getElementById('loading-bar');
     const loadingTextEl = document.getElementById('loading-text');
+    const ambientEl = document.getElementById('ambient');
 
     let barChart = null;
     let timelineChart = null;
@@ -386,7 +661,7 @@
 
             const ls = document.getElementById('loading-screen');
             ls.classList.add('fade-out');
-            setTimeout(() => ls.style.display = 'none', 600);
+            setTimeout(() => ls.style.display = 'none', 800);
             document.getElementById('app').classList.add('visible');
             state.isRunning = true;
             detectLoop();
@@ -513,16 +788,18 @@
     }
 
     function initCharts() {
+        const chartFont = { family: "'JetBrains Mono', monospace" };
+
         barChart = new Chart(document.getElementById('bar-chart'), {
             type: 'bar',
             data: {
                 labels: EMOTION_ORDER.map(e => EMOTION_MAP[e].label),
                 datasets: [{
                     data: new Array(EMOTION_ORDER.length).fill(0),
-                    backgroundColor: EMOTION_ORDER.map(e => hexToRgba(EMOTION_MAP[e].color, 0.5)),
-                    borderColor: EMOTION_ORDER.map(e => EMOTION_MAP[e].color),
-                    borderWidth: 2,
-                    borderRadius: 6,
+                    backgroundColor: EMOTION_ORDER.map(e => hexToRgba(EMOTION_MAP[e].color, 0.35)),
+                    borderColor: EMOTION_ORDER.map(e => hexToRgba(EMOTION_MAP[e].color, 0.7)),
+                    borderWidth: 1,
+                    borderRadius: 4,
                     borderSkipped: false,
                 }]
             },
@@ -531,15 +808,18 @@
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: { duration: 0 },
+                layout: { padding: { right: 4 } },
                 scales: {
                     x: {
                         min: 0, max: 1,
-                        grid: { color: 'rgba(255,255,255,0.05)' },
-                        ticks: { color: '#8888aa', callback: v => Math.round(v * 100) + '%' }
+                        grid: { color: 'rgba(255,255,255,0.03)', drawBorder: false },
+                        ticks: { color: '#5a5a78', font: { ...chartFont, size: 10 }, callback: v => Math.round(v * 100) + '%' },
+                        border: { display: false }
                     },
                     y: {
                         grid: { display: false },
-                        ticks: { color: '#e8e8f0', font: { size: 12 } }
+                        ticks: { color: '#9898b8', font: { family: "'Outfit', sans-serif", size: 11, weight: 500 } },
+                        border: { display: false }
                     }
                 },
                 plugins: { legend: { display: false }, tooltip: { enabled: false } }
@@ -553,11 +833,11 @@
                 datasets: [{
                     data: [],
                     pointBackgroundColor: [],
-                    borderColor: 'rgba(255,255,255,0.2)',
-                    backgroundColor: 'rgba(255,255,255,0.03)',
+                    borderColor: 'rgba(255,255,255,0.12)',
+                    backgroundColor: 'rgba(255,255,255,0.02)',
                     fill: true,
                     tension: 0.4,
-                    pointRadius: 2.5,
+                    pointRadius: 2,
                     pointHoverRadius: 5,
                     borderWidth: 1.5,
                 }]
@@ -566,20 +846,30 @@
                 responsive: true,
                 maintainAspectRatio: false,
                 animation: false,
+                layout: { padding: { right: 4 } },
                 scales: {
                     x: {
-                        grid: { color: 'rgba(255,255,255,0.05)' },
-                        ticks: { color: '#8888aa', maxTicksLimit: 8, maxRotation: 0, font: { size: 10 } }
+                        grid: { color: 'rgba(255,255,255,0.03)', drawBorder: false },
+                        ticks: { color: '#5a5a78', maxTicksLimit: 6, maxRotation: 0, font: { ...chartFont, size: 9 } },
+                        border: { display: false }
                     },
                     y: {
                         min: 0, max: 1,
-                        grid: { color: 'rgba(255,255,255,0.05)' },
-                        ticks: { color: '#8888aa', callback: v => Math.round(v * 100) + '%', font: { size: 10 } }
+                        grid: { color: 'rgba(255,255,255,0.03)', drawBorder: false },
+                        ticks: { color: '#5a5a78', callback: v => Math.round(v * 100) + '%', font: { ...chartFont, size: 9 } },
+                        border: { display: false }
                     }
                 },
                 plugins: {
                     legend: { display: false },
                     tooltip: {
+                        backgroundColor: 'rgba(14, 14, 30, 0.9)',
+                        borderColor: 'rgba(255,255,255,0.1)',
+                        borderWidth: 1,
+                        titleFont: { family: "'Outfit', sans-serif", size: 12 },
+                        bodyFont: { family: "'JetBrains Mono', monospace", size: 11 },
+                        cornerRadius: 8,
+                        padding: 10,
                         callbacks: {
                             label: (item) => {
                                 const entry = state.emotionHistory[item.dataIndex];
@@ -596,7 +886,7 @@
     function initEventListeners() {
         document.addEventListener('visibilitychange', () => {
             state.isBackgroundMode = document.hidden;
-            bgIndicator.style.display = document.hidden ? 'inline' : 'none';
+            bgIndicator.style.display = document.hidden ? 'flex' : 'none';
             if (!document.hidden && state.currentExpressions) {
                 updateBarChart(state.currentExpressions);
                 updateTimeline();
@@ -694,6 +984,7 @@
         state.currentExpressions = expressions;
 
         updateEmojiDisplay(dominant, confidence);
+        updateAmbientGlow(dominant);
         if (!state.isBackgroundMode) {
             updateBarChart(expressions);
         }
@@ -787,10 +1078,10 @@
         const len = Math.min(width, height) * 0.2;
 
         ctx.strokeStyle = color;
-        ctx.lineWidth = 3;
+        ctx.lineWidth = 2.5;
         ctx.lineCap = 'round';
         ctx.shadowColor = color;
-        ctx.shadowBlur = 8;
+        ctx.shadowBlur = 12;
 
         ctx.beginPath();
         ctx.moveTo(x, y + len); ctx.lineTo(x, y); ctx.lineTo(x + len, y);
@@ -815,7 +1106,7 @@
 
         for (const pt of positions) {
             ctx.beginPath();
-            ctx.arc(pt.x, pt.y, 2, 0, Math.PI * 2);
+            ctx.arc(pt.x, pt.y, 1.5, 0, Math.PI * 2);
             ctx.fill();
         }
 
@@ -832,6 +1123,11 @@
         labelEl.textContent = info.label;
         labelEl.style.color = info.color;
         confEl.textContent = Math.round(confidence * 100) + '%';
+    }
+
+    function updateAmbientGlow(emotion) {
+        const color = EMOTION_MAP[emotion]?.color || EMOTION_MAP.neutral.color;
+        document.documentElement.style.setProperty('--glow-color', color);
     }
 
     function updateBarChart(expressions) {
@@ -853,8 +1149,9 @@
         emojiEl.textContent = '👻';
         emojiEl.classList.remove('pulse');
         labelEl.textContent = '얼굴을 찾을 수 없음';
-        labelEl.style.color = 'var(--text-secondary)';
+        labelEl.style.color = 'var(--text-dim)';
         confEl.textContent = '— %';
+        updateAmbientGlow('neutral');
     }
 
     function updateStatus(mode) {
