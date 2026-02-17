@@ -596,12 +596,15 @@
         [41.5493, 92.3655], [70.7299, 92.2041],
     ];
 
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+        || (navigator.maxTouchPoints > 1 && window.innerWidth < 1024);
+
     const state = {
         isRunning: false,
         isPaused: false,
         isBackgroundMode: false,
-        detectionInterval: 150,
-        backgroundInterval: 500,
+        detectionInterval: isMobile ? 300 : 150,
+        backgroundInterval: isMobile ? 1000 : 500,
         currentEmotion: 'neutral',
         currentConfidence: 0,
         currentExpressions: null,
@@ -925,7 +928,7 @@
 
         try {
             const options = new faceapi.TinyFaceDetectorOptions({
-                inputSize: 224,
+                inputSize: isMobile ? 160 : 224,
                 scoreThreshold: 0.5
             });
 
@@ -941,6 +944,10 @@
                 const output = await state.ortSession.run({ [inputName]: inputTensor });
                 const logits = Array.from(output[outputName].data);
                 const probs = softmax(logits);
+
+                /* 텐서 메모리 해제 */
+                inputTensor.dispose();
+                output[outputName].dispose();
 
                 const rawExpressions = {};
                 OPENCV_LABELS.forEach((key, i) => { rawExpressions[key] = probs[i]; });
