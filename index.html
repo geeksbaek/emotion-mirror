@@ -651,16 +651,12 @@
     /* ═══════════════════════════════════════════
        Initialization
        ═══════════════════════════════════════════ */
+    /* 모바일에서는 WebGPU가 불안정하므로 WASM 사용 */
+    const useWebGPU = !isMobile && !!navigator.gpu;
+
     async function init() {
         try {
-            if (!navigator.gpu) {
-                throw Object.assign(
-                    new Error('WebGPU 미지원'),
-                    { name: 'WebGPUNotSupported' }
-                );
-            }
-
-            await initWebGPUBackend();
+            await initBackend();
             await initModels();
             await initWebcam();
             initCharts();
@@ -678,11 +674,7 @@
             const errorScreen = document.getElementById('error-screen');
             const errorMsg = document.getElementById('error-msg');
 
-            if (err.name === 'WebGPUNotSupported') {
-                errorMsg.innerHTML = 'WebGPU를 지원하지 않는 브라우저입니다.<br>Chrome 113+ 또는 Edge 113+에서 열어주세요.';
-                document.querySelector('.error-icon').textContent = '🖥️';
-                document.querySelector('.error-title').textContent = 'WebGPU 미지원';
-            } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
                 errorMsg.innerHTML = '카메라 접근이 거부되었습니다.<br>브라우저 설정에서 카메라 권한을 허용한 후 다시 시도해주세요.';
             } else if (err.name === 'NotFoundError') {
                 errorMsg.innerHTML = '카메라를 찾을 수 없습니다.<br>웹캠이 연결되어 있는지 확인해주세요.';
@@ -699,13 +691,18 @@
     }
 
     /* ═══════════════════════════════════════════
-       WebGPU Backend
+       Backend Init (WebGPU or WASM)
        ═══════════════════════════════════════════ */
-    async function initWebGPUBackend() {
-        loadingTextEl.textContent = 'WebGPU 백엔드 초기화 중...';
+    async function initBackend() {
+        const label = useWebGPU ? 'WebGPU' : 'WASM';
+        loadingTextEl.textContent = `${label} 백엔드 초기화 중...`;
         loadingBar.style.width = '5%';
 
-        await faceapi.tf.setBackend('webgpu');
+        if (useWebGPU) {
+            await faceapi.tf.setBackend('webgpu');
+        } else {
+            await faceapi.tf.setBackend('webgl');
+        }
         await faceapi.tf.ready();
 
         const backend = faceapi.tf.getBackend();
@@ -757,10 +754,11 @@
                     offset += chunk.length;
                 }
 
-                loadingTextEl.textContent = 'ONNX 세션 생성 중 (WebGPU)...';
+                const ortBackend = useWebGPU ? 'webgpu' : 'wasm';
+                loadingTextEl.textContent = `ONNX 세션 생성 중 (${ortBackend.toUpperCase()})...`;
                 loadingBar.style.width = '92%';
                 state.ortSession = await ort.InferenceSession.create(modelBuffer.buffer, {
-                    executionProviders: ['webgpu'],
+                    executionProviders: [ortBackend],
                 });
                 console.log('OpenCV FER session ready:', state.ortSession.inputNames, state.ortSession.outputNames);
                 loadingBar.style.width = '95%';
