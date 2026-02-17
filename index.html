@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Emotion Mirror — WebGPU</title>
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        :root {
+            --bg-primary: #0a0a1a;
+            --bg-secondary: rgba(255, 255, 255, 0.05);
+            --bg-glass: rgba(255, 255, 255, 0.06);
+            --border-glass: rgba(255, 255, 255, 0.10);
+            --text-primary: #e8e8f0;
+            --text-secondary: #8888aa;
+            --accent-happy: #FFD700;
+            --accent-sad: #4169E1;
+            --accent-angry: #DC143C;
+            --accent-surprised: #FF8C00;
+            --accent-disgusted: #228B22;
+            --accent-fearful: #9370DB;
+            --accent-neutral: #A0A0C0;
+            --glass-blur: 20px;
+            --radius: 16px;
+            --shadow: 0 8px 32px rgba(0,0,0,0.4);
+        }
+
+        body {
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        /* ── Loading Screen ── */
+        #loading-screen {
+            position: fixed; inset: 0; z-index: 1000;
+            background: var(--bg-primary);
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 24px;
+            transition: opacity 0.6s ease;
+        }
+        #loading-screen.fade-out { opacity: 0; pointer-events: none; }
+        .loader-ring {
+            width: 64px; height: 64px;
+            border: 4px solid rgba(255,255,255,0.1);
+            border-top-color: var(--accent-happy);
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        #loading-text { color: var(--text-secondary); font-size: 14px; }
+        #loading-progress {
+            width: 240px; height: 4px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 2px; overflow: hidden;
+        }
+        #loading-bar {
+            height: 100%; width: 0%;
+            background: linear-gradient(90deg, var(--accent-happy), var(--accent-surprised));
+            border-radius: 2px;
+            transition: width 0.4s ease;
+        }
+
+        /* ── Error Screen ── */
+        #error-screen {
+            display: none; position: fixed; inset: 0; z-index: 999;
+            background: var(--bg-primary);
+            flex-direction: column; align-items: center; justify-content: center; gap: 16px;
+        }
+        #error-screen.visible { display: flex; }
+        .error-icon { font-size: 64px; }
+        .error-msg { color: var(--text-secondary); font-size: 15px; text-align: center; max-width: 400px; line-height: 1.6; }
+        .retry-btn {
+            margin-top: 8px; padding: 10px 28px;
+            background: rgba(255,255,255,0.1); color: var(--text-primary);
+            border: 1px solid var(--border-glass); border-radius: 8px;
+            cursor: pointer; font-size: 14px; transition: background 0.2s;
+        }
+        .retry-btn:hover { background: rgba(255,255,255,0.18); }
+
+        /* ── Main App ── */
+        #app {
+            display: none; padding: 20px;
+            max-width: 1200px; margin: 0 auto;
+        }
+        #app.visible { display: block; }
+
+        header { text-align: center; margin-bottom: 20px; }
+        header h1 {
+            font-size: 24px; font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-happy), var(--accent-surprised));
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        header p { color: var(--text-secondary); font-size: 13px; margin-top: 4px; }
+
+        .glass-card {
+            background: var(--bg-glass);
+            backdrop-filter: blur(var(--glass-blur));
+            -webkit-backdrop-filter: blur(var(--glass-blur));
+            border: 1px solid var(--border-glass);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 16px;
+        }
+
+        .main-grid {
+            display: grid;
+            grid-template-columns: 1.6fr 1fr;
+            grid-template-rows: auto auto;
+            gap: 16px;
+        }
+        .video-section { grid-row: 1 / 3; }
+        .timeline-section { grid-column: 1 / -1; }
+
+        #video-wrap {
+            position: relative; width: 100%;
+            aspect-ratio: 4/3; overflow: hidden;
+            border-radius: 12px; background: #000;
+        }
+        #video {
+            width: 100%; height: 100%;
+            object-fit: cover; display: block;
+            transform: scaleX(-1);
+        }
+        #overlay {
+            position: absolute; inset: 0;
+            width: 100%; height: 100%;
+            transform: scaleX(-1);
+        }
+
+        .emoji-section {
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 8px; text-align: center;
+            min-height: 180px;
+        }
+        #emoji {
+            font-size: 80px; line-height: 1;
+            transition: transform 0.3s ease;
+        }
+        #emoji.pulse { animation: pulse 1.5s ease-in-out infinite; }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.12); }
+        }
+        #emotion-label {
+            font-size: 20px; font-weight: 600;
+            transition: color 0.3s ease;
+        }
+        #emotion-confidence { font-size: 14px; color: var(--text-secondary); }
+
+        .chart-section { position: relative; min-height: 200px; }
+        #bar-chart-wrap { width: 100%; height: 180px; }
+        .timeline-section { position: relative; }
+        #timeline-wrap { width: 100%; height: 140px; }
+
+        .status-bar {
+            display: flex; align-items: center; justify-content: space-between;
+            margin-top: 16px; padding: 10px 16px;
+            font-size: 12px; color: var(--text-secondary);
+        }
+        .status-left, .status-right { display: flex; align-items: center; gap: 16px; }
+        .status-dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: #22c55e; display: inline-block; margin-right: 6px;
+        }
+        .status-dot.no-face { background: #ef4444; }
+        .status-dot.paused { background: #eab308; }
+        .status-dot.background { animation: blink 1.2s ease-in-out infinite; background: #3b82f6; }
+        @keyframes blink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
+
+        .pause-btn {
+            padding: 4px 14px; font-size: 12px;
+            background: rgba(255,255,255,0.08); color: var(--text-primary);
+            border: 1px solid var(--border-glass); border-radius: 6px;
+            cursor: pointer; transition: background 0.2s;
+        }
+        .pause-btn:hover { background: rgba(255,255,255,0.15); }
+
+        .backend-badge {
+            padding: 2px 8px; font-size: 10px; font-weight: 600;
+            background: rgba(118, 185, 0, 0.15); color: #76b900;
+            border: 1px solid rgba(118, 185, 0, 0.3);
+            border-radius: 4px; text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        @media (max-width: 768px) {
+            .main-grid {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto;
+            }
+            .video-section { grid-row: auto; }
+            .timeline-section { grid-column: auto; }
+            #emoji { font-size: 80px; }
+            .emoji-section { min-height: 120px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="loading-screen">
+        <div class="loader-ring"></div>
+        <div id="loading-text">WebGPU 백엔드 초기화 중...</div>
+        <div id="loading-progress"><div id="loading-bar"></div></div>
+    </div>
+
+    <div id="error-screen">
+        <div class="error-icon">📷</div>
+        <div class="error-title" style="font-size:20px;font-weight:600;">카메라 접근 필요</div>
+        <div class="error-msg" id="error-msg">
+            이 앱은 웹캠을 사용하여 표정을 분석합니다.<br>
+            브라우저에서 카메라 접근을 허용해주세요.
+        </div>
+        <button class="retry-btn" id="retry-btn">다시 시도</button>
+    </div>
+
+    <div id="app">
+        <header>
+            <h1>Emotion Mirror</h1>
+            <p>실시간 표정 감정 분석 — 온디바이스 AI (WebGPU)</p>
+        </header>
+
+        <div class="main-grid">
+            <div class="video-section glass-card">
+                <div id="video-wrap">
+                    <video id="video" autoplay muted playsinline></video>
+                    <canvas id="overlay"></canvas>
+                </div>
+            </div>
+
+            <div class="emoji-section glass-card">
+                <div id="emoji">😐</div>
+                <div id="emotion-label" style="color: var(--accent-neutral);">Neutral</div>
+                <div id="emotion-confidence">— %</div>
+            </div>
+
+            <div class="chart-section glass-card">
+                <div id="bar-chart-wrap">
+                    <canvas id="bar-chart"></canvas>
+                </div>
+            </div>
+
+            <div class="timeline-section glass-card">
+                <div id="timeline-wrap">
+                    <canvas id="timeline-chart"></canvas>
+                </div>
+            </div>
+        </div>
+
+        <div class="status-bar glass-card">
+            <div class="status-left">
+                <span><span class="status-dot" id="status-dot"></span><span id="status-text">시작하는 중...</span></span>
+                <span id="fps-text">0 FPS</span>
+                <span class="backend-badge" id="backend-badge">WebGPU</span>
+                <span id="bg-indicator" style="display:none;">
+                    <span class="status-dot background"></span>백그라운드 모드
+                </span>
+            </div>
+            <div class="status-right">
+                <button class="pause-btn" id="pause-btn">일시정지</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Chart.js (UMD) -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+
+    <!-- Import map: face-api nobundle의 bare specifier를 esm.sh로 해석 -->
+    <script type="importmap">
+    {
+        "imports": {
+            "@tensorflow/tfjs/dist/index.js": "https://esm.sh/@tensorflow/tfjs@4.22.0",
+            "@tensorflow/tfjs-backend-webgl/dist/index.js": "https://esm.sh/@tensorflow/tfjs-backend-webgl@4.22.0",
+            "@tensorflow/tfjs-backend-wasm/dist/index.js": "https://esm.sh/@tensorflow/tfjs-backend-wasm@4.22.0"
+        }
+    }
+    </script>
+
+    <script type="module">
+    /* ═══════════════════════════════════════════
+       Module Imports
+       — WebGPU 백엔드를 로드하여 tf에 등록
+       — face-api nobundle은 importmap을 통해 동일한 tf 인스턴스를 공유
+       ═══════════════════════════════════════════ */
+    import 'https://esm.sh/@tensorflow/tfjs-backend-webgpu@4.22.0';
+    import * as faceapi from 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/dist/face-api.esm-nobundle.js';
+    import * as ort from 'https://esm.sh/onnxruntime-web@1.21.0/webgpu';
+    ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.21.0/dist/';
+
+    /* ═══════════════════════════════════════════
+       Constants & State
+       ═══════════════════════════════════════════ */
+    const MODEL_URL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/model';
+
+    const EMOTION_MAP = {
+        neutral:   { emoji: '😐', label: 'Neutral',   color: '#A0A0C0' },
+        happy:     { emoji: '😊', label: 'Happy',     color: '#FFD700' },
+        sad:       { emoji: '😢', label: 'Sad',       color: '#4169E1' },
+        angry:     { emoji: '😠', label: 'Angry',     color: '#DC143C' },
+        surprised: { emoji: '😲', label: 'Surprised', color: '#FF8C00' },
+        disgusted: { emoji: '🤢', label: 'Disgusted', color: '#228B22' },
+        fearful:   { emoji: '😨', label: 'Fearful',   color: '#9370DB' },
+    };
+
+    const EMOTION_ORDER = ['happy', 'sad', 'angry', 'surprised', 'disgusted', 'fearful', 'neutral'];
+
+    /* OpenCV FER 모델 출력 라벨 (index 순서) */
+    const OPENCV_LABELS = ['angry', 'disgusted', 'fearful', 'happy', 'neutral', 'sad', 'surprised'];
+
+    /* 112×112 정렬 기준점 (left eye, right eye, nose, left mouth, right mouth) */
+    const REFERENCE_POINTS = [
+        [38.2946, 51.6963], [73.5318, 51.5014], [56.0252, 71.7366],
+        [41.5493, 92.3655], [70.7299, 92.2041],
+    ];
+
+    const state = {
+        isRunning: false,
+        isPaused: false,
+        isBackgroundMode: false,
+        detectionInterval: 150,
+        backgroundInterval: 500,
+        currentEmotion: 'neutral',
+        currentConfidence: 0,
+        currentExpressions: null,
+        emotionHistory: [],
+        maxHistoryLength: 300,
+        historyInterval: 1000,
+        lastHistorySample: 0,
+        ortSession: null,
+        smoothedExpressions: null,
+        emaAlpha: 0.4,
+        noFaceCount: 0,
+        fps: 0,
+        frameCount: 0,
+        lastFpsUpdate: Date.now(),
+    };
+
+    /* ═══════════════════════════════════════════
+       DOM References
+       ═══════════════════════════════════════════ */
+    const video = document.getElementById('video');
+    const overlayCanvas = document.getElementById('overlay');
+    const ctx = overlayCanvas.getContext('2d');
+    const emojiEl = document.getElementById('emoji');
+    const labelEl = document.getElementById('emotion-label');
+    const confEl = document.getElementById('emotion-confidence');
+    const statusDot = document.getElementById('status-dot');
+    const statusText = document.getElementById('status-text');
+    const fpsText = document.getElementById('fps-text');
+    const bgIndicator = document.getElementById('bg-indicator');
+    const pauseBtn = document.getElementById('pause-btn');
+    const loadingBar = document.getElementById('loading-bar');
+    const loadingTextEl = document.getElementById('loading-text');
+
+    let barChart = null;
+    let timelineChart = null;
+
+    /* Offscreen canvas for face alignment → 112×112 */
+    const cropCanvas = document.createElement('canvas');
+    cropCanvas.width = 112;
+    cropCanvas.height = 112;
+    const cropCtx = cropCanvas.getContext('2d', { willReadFrequently: true });
+
+    /* ═══════════════════════════════════════════
+       Initialization
+       ═══════════════════════════════════════════ */
+    async function init() {
+        try {
+            if (!navigator.gpu) {
+                throw Object.assign(
+                    new Error('WebGPU 미지원'),
+                    { name: 'WebGPUNotSupported' }
+                );
+            }
+
+            await initWebGPUBackend();
+            await initModels();
+            await initWebcam();
+            initCharts();
+            initEventListeners();
+
+            const ls = document.getElementById('loading-screen');
+            ls.classList.add('fade-out');
+            setTimeout(() => ls.style.display = 'none', 600);
+            document.getElementById('app').classList.add('visible');
+            state.isRunning = true;
+            detectLoop();
+        } catch (err) {
+            console.error('Init failed:', err);
+            document.getElementById('loading-screen').style.display = 'none';
+            const errorScreen = document.getElementById('error-screen');
+            const errorMsg = document.getElementById('error-msg');
+
+            if (err.name === 'WebGPUNotSupported') {
+                errorMsg.innerHTML = 'WebGPU를 지원하지 않는 브라우저입니다.<br>Chrome 113+ 또는 Edge 113+에서 열어주세요.';
+                document.querySelector('.error-icon').textContent = '🖥️';
+                document.querySelector('.error-title').textContent = 'WebGPU 미지원';
+            } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                errorMsg.innerHTML = '카메라 접근이 거부되었습니다.<br>브라우저 설정에서 카메라 권한을 허용한 후 다시 시도해주세요.';
+            } else if (err.name === 'NotFoundError') {
+                errorMsg.innerHTML = '카메라를 찾을 수 없습니다.<br>웹캠이 연결되어 있는지 확인해주세요.';
+                document.querySelector('.error-icon').textContent = '🔌';
+            } else if (err.message && err.message.includes('model')) {
+                errorMsg.innerHTML = '모델 로딩에 실패했습니다.<br>인터넷 연결을 확인하고 다시 시도해주세요.';
+                document.querySelector('.error-icon').textContent = '🌐';
+            } else {
+                errorMsg.innerHTML = `오류가 발생했습니다: ${err.message}`;
+                document.querySelector('.error-icon').textContent = '⚠️';
+            }
+            errorScreen.classList.add('visible');
+        }
+    }
+
+    /* ═══════════════════════════════════════════
+       WebGPU Backend
+       ═══════════════════════════════════════════ */
+    async function initWebGPUBackend() {
+        loadingTextEl.textContent = 'WebGPU 백엔드 초기화 중...';
+        loadingBar.style.width = '5%';
+
+        await faceapi.tf.setBackend('webgpu');
+        await faceapi.tf.ready();
+
+        const backend = faceapi.tf.getBackend();
+        console.log(`TF.js backend: ${backend}`);
+        document.getElementById('backend-badge').textContent = backend.toUpperCase();
+    }
+
+    async function initModels() {
+        loadingTextEl.textContent = '얼굴 감지 모델 로딩 중...';
+        loadingBar.style.width = '10%';
+
+        let retries = 0;
+        const maxRetries = 3;
+
+        while (retries < maxRetries) {
+            try {
+                await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL);
+                loadingBar.style.width = '20%';
+                loadingTextEl.textContent = '랜드마크 모델 로딩 중...';
+
+                await faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL);
+                loadingBar.style.width = '40%';
+                loadingTextEl.textContent = 'OpenCV 감정 인식 모델 다운로드 중...';
+
+                /* ── OpenCV Progressive Teacher ONNX 모델 (RAF-DB 88.27%) ── */
+                const ferUrl = 'https://huggingface.co/opencv/facial_expression_recognition/resolve/main/facial_expression_recognition_mobilefacenet_2022july.onnx';
+                const response = await fetch(ferUrl);
+                const contentLength = +(response.headers.get('Content-Length') || 0);
+                const reader = response.body.getReader();
+                const chunks = [];
+                let received = 0;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+                    chunks.push(value);
+                    received += value.length;
+                    if (contentLength) {
+                        const pct = 40 + Math.round((received / contentLength) * 50);
+                        loadingBar.style.width = pct + '%';
+                    }
+                    loadingTextEl.textContent = `감정 모델 다운로드 중... ${(received / 1024).toFixed(0)} KB`;
+                }
+
+                const modelBuffer = new Uint8Array(received);
+                let offset = 0;
+                for (const chunk of chunks) {
+                    modelBuffer.set(chunk, offset);
+                    offset += chunk.length;
+                }
+
+                loadingTextEl.textContent = 'ONNX 세션 생성 중 (WebGPU)...';
+                loadingBar.style.width = '92%';
+                state.ortSession = await ort.InferenceSession.create(modelBuffer.buffer, {
+                    executionProviders: ['webgpu'],
+                });
+                console.log('OpenCV FER session ready:', state.ortSession.inputNames, state.ortSession.outputNames);
+                loadingBar.style.width = '95%';
+                loadingTextEl.textContent = '준비 완료!';
+                return;
+            } catch (err) {
+                retries++;
+                if (retries >= maxRetries) {
+                    err.message = 'model load failed after retries';
+                    throw err;
+                }
+                loadingTextEl.textContent = `로딩 재시도 중... (${retries}/${maxRetries})`;
+                await new Promise(r => setTimeout(r, 1000 * Math.pow(2, retries)));
+            }
+        }
+    }
+
+    async function initWebcam() {
+        loadingTextEl.textContent = '카메라 연결 중...';
+        loadingBar.style.width = '100%';
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' }
+        });
+        video.srcObject = stream;
+        await new Promise(resolve => {
+            video.onloadedmetadata = () => {
+                overlayCanvas.width = video.videoWidth;
+                overlayCanvas.height = video.videoHeight;
+                resolve();
+            };
+        });
+    }
+
+    function initCharts() {
+        barChart = new Chart(document.getElementById('bar-chart'), {
+            type: 'bar',
+            data: {
+                labels: EMOTION_ORDER.map(e => EMOTION_MAP[e].label),
+                datasets: [{
+                    data: new Array(EMOTION_ORDER.length).fill(0),
+                    backgroundColor: EMOTION_ORDER.map(e => hexToRgba(EMOTION_MAP[e].color, 0.5)),
+                    borderColor: EMOTION_ORDER.map(e => EMOTION_MAP[e].color),
+                    borderWidth: 2,
+                    borderRadius: 6,
+                    borderSkipped: false,
+                }]
+            },
+            options: {
+                indexAxis: 'y',
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: { duration: 0 },
+                scales: {
+                    x: {
+                        min: 0, max: 1,
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: { color: '#8888aa', callback: v => Math.round(v * 100) + '%' }
+                    },
+                    y: {
+                        grid: { display: false },
+                        ticks: { color: '#e8e8f0', font: { size: 12 } }
+                    }
+                },
+                plugins: { legend: { display: false }, tooltip: { enabled: false } }
+            }
+        });
+
+        timelineChart = new Chart(document.getElementById('timeline-chart'), {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    data: [],
+                    pointBackgroundColor: [],
+                    borderColor: 'rgba(255,255,255,0.2)',
+                    backgroundColor: 'rgba(255,255,255,0.03)',
+                    fill: true,
+                    tension: 0.4,
+                    pointRadius: 2.5,
+                    pointHoverRadius: 5,
+                    borderWidth: 1.5,
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: false,
+                scales: {
+                    x: {
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: { color: '#8888aa', maxTicksLimit: 8, maxRotation: 0, font: { size: 10 } }
+                    },
+                    y: {
+                        min: 0, max: 1,
+                        grid: { color: 'rgba(255,255,255,0.05)' },
+                        ticks: { color: '#8888aa', callback: v => Math.round(v * 100) + '%', font: { size: 10 } }
+                    }
+                },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (item) => {
+                                const entry = state.emotionHistory[item.dataIndex];
+                                if (!entry) return '';
+                                return `${EMOTION_MAP[entry.dominant].label}: ${Math.round(item.raw * 100)}%`;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    function initEventListeners() {
+        document.addEventListener('visibilitychange', () => {
+            state.isBackgroundMode = document.hidden;
+            bgIndicator.style.display = document.hidden ? 'inline' : 'none';
+            if (!document.hidden && state.currentExpressions) {
+                updateBarChart(state.currentExpressions);
+                updateTimeline();
+            }
+        });
+
+        window.addEventListener('resize', () => {
+            if (video.videoWidth) {
+                overlayCanvas.width = video.videoWidth;
+                overlayCanvas.height = video.videoHeight;
+            }
+        });
+
+        pauseBtn.addEventListener('click', togglePause);
+        document.getElementById('retry-btn').addEventListener('click', () => location.reload());
+    }
+
+    /* ═══════════════════════════════════════════
+       Detection Loop
+       ═══════════════════════════════════════════ */
+    async function detectLoop() {
+        if (!state.isRunning) return;
+
+        if (state.isPaused) {
+            setTimeout(detectLoop, 500);
+            return;
+        }
+
+        const interval = state.isBackgroundMode
+            ? state.backgroundInterval
+            : state.detectionInterval;
+
+        try {
+            const options = new faceapi.TinyFaceDetectorOptions({
+                inputSize: 224,
+                scoreThreshold: 0.5
+            });
+
+            const result = await faceapi.detectSingleFace(video, options)
+                .withFaceLandmarks(true);
+
+            if (result) {
+                /* ── OpenCV FER 추론 (landmark-aligned face) ── */
+                const inputData = alignFace(video, result.landmarks.positions);
+                const inputName = state.ortSession.inputNames[0];
+                const outputName = state.ortSession.outputNames[0];
+                const inputTensor = new ort.Tensor('float32', inputData, [1, 3, 112, 112]);
+                const output = await state.ortSession.run({ [inputName]: inputTensor });
+                const logits = Array.from(output[outputName].data);
+                const probs = softmax(logits);
+
+                const rawExpressions = {};
+                OPENCV_LABELS.forEach((key, i) => { rawExpressions[key] = probs[i]; });
+                const expressions = smoothExpressions(rawExpressions);
+
+                state.noFaceCount = 0;
+                processDetection(result, expressions);
+                updateStatus('detecting');
+            } else {
+                state.noFaceCount++;
+                if (state.noFaceCount >= 3) {
+                    state.smoothedExpressions = null;
+                    handleNoFace();
+                    updateStatus('no-face');
+                }
+            }
+
+            updateFPS();
+        } catch (err) {
+            console.error('Detection error:', err);
+        }
+
+        setTimeout(detectLoop, interval);
+    }
+
+    /* ═══════════════════════════════════════════
+       Process Detection
+       ═══════════════════════════════════════════ */
+    function processDetection(result, expressions) {
+        const dims = faceapi.matchDimensions(overlayCanvas, video, true);
+        const resized = faceapi.resizeResults(result, dims);
+
+        ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+
+        const sorted = Object.entries(expressions).sort(([, a], [, b]) => b - a);
+        const [dominant, confidence] = sorted[0];
+
+        const emotionColor = EMOTION_MAP[dominant].color;
+
+        drawCornerBox(resized.detection.box, emotionColor);
+        drawLandmarks(resized.landmarks.positions, emotionColor);
+
+        state.currentEmotion = dominant;
+        state.currentConfidence = confidence;
+        state.currentExpressions = expressions;
+
+        updateEmojiDisplay(dominant, confidence);
+        if (!state.isBackgroundMode) {
+            updateBarChart(expressions);
+        }
+
+        const now = Date.now();
+        if (now - state.lastHistorySample >= state.historyInterval) {
+            recordHistory(expressions, dominant, confidence);
+            state.lastHistorySample = now;
+        }
+    }
+
+    /* ═══════════════════════════════════════════
+       Face Alignment & Preprocessing
+       ═══════════════════════════════════════════ */
+    function extractFivePoints(landmarks) {
+        /* 68-point → 5-point (left eye, right eye, nose, left mouth, right mouth) */
+        const le = [0, 0], re = [0, 0];
+        for (let i = 36; i <= 41; i++) { le[0] += landmarks[i].x; le[1] += landmarks[i].y; }
+        for (let i = 42; i <= 47; i++) { re[0] += landmarks[i].x; re[1] += landmarks[i].y; }
+        le[0] /= 6; le[1] /= 6; re[0] /= 6; re[1] /= 6;
+        return [le, re, [landmarks[30].x, landmarks[30].y],
+                [landmarks[48].x, landmarks[48].y], [landmarks[54].x, landmarks[54].y]];
+    }
+
+    function computeSimilarityTransform(src, dst) {
+        const n = src.length;
+        let sx = 0, sy = 0, dx = 0, dy = 0;
+        for (let i = 0; i < n; i++) { sx += src[i][0]; sy += src[i][1]; dx += dst[i][0]; dy += dst[i][1]; }
+        sx /= n; sy /= n; dx /= n; dy /= n;
+
+        let sxx_syy = 0, sxdx_sydy = 0, sydx_sxdy = 0;
+        for (let i = 0; i < n; i++) {
+            const cx = src[i][0] - sx, cy = src[i][1] - sy;
+            const ex = dst[i][0] - dx, ey = dst[i][1] - dy;
+            sxx_syy   += cx * cx + cy * cy;
+            sxdx_sydy += cx * ex + cy * ey;
+            sydx_sxdy += cy * ex - cx * ey;
+        }
+        const a = sxdx_sydy / sxx_syy;
+        const b = sydx_sxdy / sxx_syy;
+        return { a, b, tx: dx - (a * sx - b * sy), ty: dy - (b * sx + a * sy) };
+    }
+
+    function alignFace(videoEl, landmarks) {
+        const srcPts = extractFivePoints(landmarks);
+        const { a, b, tx, ty } = computeSimilarityTransform(srcPts, REFERENCE_POINTS);
+
+        cropCtx.save();
+        cropCtx.setTransform(a, b, -b, a, tx, ty);
+        cropCtx.drawImage(videoEl, 0, 0);
+        cropCtx.restore();
+
+        const { data } = cropCtx.getImageData(0, 0, 112, 112);
+        /* NCHW, RGB, normalize to [-1, 1] */
+        const n = 112 * 112;
+        const float32 = new Float32Array(3 * n);
+        for (let i = 0; i < n; i++) {
+            float32[i]         = data[i * 4]     / 127.5 - 1.0;
+            float32[n + i]     = data[i * 4 + 1] / 127.5 - 1.0;
+            float32[2 * n + i] = data[i * 4 + 2] / 127.5 - 1.0;
+        }
+        return float32;
+    }
+
+    function softmax(arr) {
+        const max = Math.max(...arr);
+        const exps = arr.map(v => Math.exp(v - max));
+        const sum = exps.reduce((a, b) => a + b, 0);
+        return exps.map(v => v / sum);
+    }
+
+    function smoothExpressions(raw) {
+        if (!state.smoothedExpressions) {
+            state.smoothedExpressions = { ...raw };
+            return state.smoothedExpressions;
+        }
+        const a = state.emaAlpha;
+        const smoothed = {};
+        for (const key of EMOTION_ORDER) {
+            smoothed[key] = a * (raw[key] || 0) + (1 - a) * (state.smoothedExpressions[key] || 0);
+        }
+        state.smoothedExpressions = smoothed;
+        return smoothed;
+    }
+
+    /* ═══════════════════════════════════════════
+       Custom Drawing
+       ═══════════════════════════════════════════ */
+    function drawCornerBox(box, color) {
+        const { x, y, width, height } = box;
+        const len = Math.min(width, height) * 0.2;
+
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.lineCap = 'round';
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 8;
+
+        ctx.beginPath();
+        ctx.moveTo(x, y + len); ctx.lineTo(x, y); ctx.lineTo(x + len, y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + width - len, y); ctx.lineTo(x + width, y); ctx.lineTo(x + width, y + len);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x, y + height - len); ctx.lineTo(x, y + height); ctx.lineTo(x + len, y + height);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + width - len, y + height); ctx.lineTo(x + width, y + height); ctx.lineTo(x + width, y + height - len);
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
+    }
+
+    function drawLandmarks(positions, color) {
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 4;
+
+        for (const pt of positions) {
+            ctx.beginPath();
+            ctx.arc(pt.x, pt.y, 2, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        ctx.shadowBlur = 0;
+    }
+
+    /* ═══════════════════════════════════════════
+       UI Updates
+       ═══════════════════════════════════════════ */
+    function updateEmojiDisplay(emotion, confidence) {
+        const info = EMOTION_MAP[emotion];
+        emojiEl.textContent = info.emoji;
+        emojiEl.classList.toggle('pulse', confidence > 0.5);
+        labelEl.textContent = info.label;
+        labelEl.style.color = info.color;
+        confEl.textContent = Math.round(confidence * 100) + '%';
+    }
+
+    function updateBarChart(expressions) {
+        const data = EMOTION_ORDER.map(e => expressions[e] || 0);
+        barChart.data.datasets[0].data = data;
+        barChart.update('none');
+    }
+
+    function updateTimeline() {
+        const ds = timelineChart.data;
+        ds.labels = state.emotionHistory.map(h => h.time);
+        ds.datasets[0].data = state.emotionHistory.map(h => h.confidence);
+        ds.datasets[0].pointBackgroundColor = state.emotionHistory.map(h => EMOTION_MAP[h.dominant].color);
+        timelineChart.update('none');
+    }
+
+    function handleNoFace() {
+        ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+        emojiEl.textContent = '👻';
+        emojiEl.classList.remove('pulse');
+        labelEl.textContent = '얼굴을 찾을 수 없음';
+        labelEl.style.color = 'var(--text-secondary)';
+        confEl.textContent = '— %';
+    }
+
+    function updateStatus(mode) {
+        if (mode === 'detecting') {
+            statusDot.className = 'status-dot';
+            statusText.textContent = '감지 중';
+        } else if (mode === 'no-face') {
+            statusDot.className = 'status-dot no-face';
+            statusText.textContent = '얼굴 미감지';
+        } else if (mode === 'paused') {
+            statusDot.className = 'status-dot paused';
+            statusText.textContent = '일시정지';
+        }
+    }
+
+    function updateFPS() {
+        state.frameCount++;
+        const now = Date.now();
+        const elapsed = now - state.lastFpsUpdate;
+        if (elapsed >= 1000) {
+            state.fps = Math.round(state.frameCount * 1000 / elapsed);
+            fpsText.textContent = state.fps + ' FPS';
+            state.frameCount = 0;
+            state.lastFpsUpdate = now;
+        }
+    }
+
+    /* ═══════════════════════════════════════════
+       History
+       ═══════════════════════════════════════════ */
+    function recordHistory(expressions, dominant, confidence) {
+        const now = new Date();
+        const time = now.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+
+        state.emotionHistory.push({ time, dominant, confidence, expressions: { ...expressions } });
+
+        if (state.emotionHistory.length > state.maxHistoryLength) {
+            state.emotionHistory.shift();
+        }
+
+        if (!state.isBackgroundMode) {
+            updateTimeline();
+        }
+    }
+
+    /* ═══════════════════════════════════════════
+       Controls
+       ═══════════════════════════════════════════ */
+    function togglePause() {
+        state.isPaused = !state.isPaused;
+        pauseBtn.textContent = state.isPaused ? '재개' : '일시정지';
+        if (state.isPaused) {
+            updateStatus('paused');
+        }
+    }
+
+    /* ═══════════════════════════════════════════
+       Utilities
+       ═══════════════════════════════════════════ */
+    function hexToRgba(hex, alpha) {
+        const r = parseInt(hex.slice(1, 3), 16);
+        const g = parseInt(hex.slice(3, 5), 16);
+        const b = parseInt(hex.slice(5, 7), 16);
+        return `rgba(${r},${g},${b},${alpha})`;
+    }
+
+    /* ═══════════════════════════════════════════
+       Start
+       ═══════════════════════════════════════════ */
+    init();
+    </script>
+</body>
+</html>
